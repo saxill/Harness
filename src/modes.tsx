@@ -1,11 +1,10 @@
 // Side panels for the Claude Code, Hermes and Zara home modes. Auto keeps the
 // general overview (Home.tsx); each of these shows only what that agent needs.
 import { useEffect, useState } from "react";
-import { api, Device, HistoryRow, Status, statusStore, when } from "./api";
+import { api, Device, HermesJob, HistoryRow, Status, statusStore, when } from "./api";
 import { piActions } from "./actions";
 import { Dot, OsGlyph, runAction, useStatus } from "./components";
 import { sessions, vault } from "./hub";
-import { jobTimes } from "./cores";
 import { useSessions } from "./terminals";
 
 const pct = (n?: number) => (n === undefined ? "–" : `${Math.round(n)}%`);
@@ -83,6 +82,31 @@ export function ClaudeSide({ onNavigate }: { onNavigate: (tab: string) => void }
 }
 
 // ---------------- Hermes ----------------
+
+/** Times of day (hours, fractional) a job runs, from a cron expression or,
+ * failing that, from its next run. Weekly jobs are flagged. */
+export function jobTimes(j: HermesJob): { hours: number[]; weekly: boolean } {
+  const parts = j.schedule.trim().split(/\s+/);
+  const expand = (f: string, max: number) => {
+    if (f === "*") return Array.from({ length: max }, (_, i) => i);
+    const step = f.match(/^\*\/(\d+)$/);
+    if (step) return Array.from({ length: max }, (_, i) => i).filter((i) => i % Number(step[1]) === 0);
+    return f.split(",").flatMap((x) => {
+      const r = x.match(/^(\d+)-(\d+)$/);
+      return r ? Array.from({ length: Number(r[2]) - Number(r[1]) + 1 }, (_, i) => Number(r[1]) + i) : [Number(x)];
+    }).filter((n) => Number.isFinite(n));
+  };
+  if (parts.length === 5 && /^[\d*,/-]+$/.test(parts[0]) && /^[\d*,/-]+$/.test(parts[1])) {
+    const mins = expand(parts[0], 60), hrs = expand(parts[1], 24);
+    return { hours: hrs.flatMap((h) => mins.map((m) => h + m / 60)).slice(0, 48), weekly: parts[4] !== "*" };
+  }
+  if (j.next_run_at) {
+    const d = new Date(j.next_run_at);
+    return { hours: [d.getHours() + d.getMinutes() / 60], weekly: /week|monday|tuesday|wednesday|thursday|friday|saturday|sunday/i.test(j.schedule) };
+  }
+  return { hours: [], weekly: false };
+}
+
 
 export function HermesJobs() {
   const { status } = useStatus();

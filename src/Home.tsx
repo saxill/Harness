@@ -5,17 +5,18 @@ import { runAction, useRuns, useStatus } from "./components";
 import {
   compact, Directive, DIRECTIVES_PATH, DIRECTIVES_TEMPLATE, laya, parseDirectives, SessionKind, vault, youtube,
 } from "./hub";
-import { CodeCore, OrbitCore, SpiralCore, WaveCore } from "./cores";
+import { Core, CoreShape } from "./cores";
 import { ClaudeMachines, ClaudeSide, HermesJobs, HermesSide, ZaraSide, ZaraToday } from "./modes";
 import { Alert, alertsFor } from "./Overview";
 import { openSession, useSessions } from "./terminals";
 
 type Mode = "auto" | "claude" | "hermes" | "zara";
-const MODES: { id: Mode; label: string; sub: string }[] = [
-  { id: "auto", label: "AUTO", sub: "Laya picks who handles it" },
-  { id: "claude", label: "CLAUDE CODE", sub: "Opens a session on the machine you pick" },
-  { id: "hermes", label: "HERMES", sub: "His day on channa · each ring is a cron job" },
-  { id: "zara", label: "ZARA", sub: "The Pi's pipelines · each bar is a recent Short's views" },
+/** Every mode uses the same particle core; only its shape and colour change. */
+const MODES: { id: Mode; label: string; sub: string; shape: CoreShape; rgb: string }[] = [
+  { id: "auto", label: "AUTO", sub: "Laya picks who handles it", shape: "spiral", rgb: "235,242,246" },
+  { id: "claude", label: "CLAUDE CODE", sub: "Opens a session on the machine you pick", shape: "globe", rgb: "232,166,106" },
+  { id: "hermes", label: "HERMES", sub: "Research, browsing, carousels · on channa", shape: "orbits", rgb: "157,140,255" },
+  { id: "zara", label: "ZARA", sub: "Assistant, memory, pipelines · on the Pi", shape: "wave", rgb: "95,211,194" },
 ];
 
 /** Which alerts each mode shows: everything, machines only, channa, or the Pi. */
@@ -197,7 +198,6 @@ export default function Home({ onNavigate }: { onNavigate: (tab: string) => void
   const { devices, status, pipelines } = useStatus();
   const runsNow = useRuns().filter((r) => r.running).length;
   const { sessions: open } = useSessions();
-  const yt = useYoutube();
   const [mode, setModeState] = useState<Mode>(savedMode);
   const [target, setTarget] = useState("laptop");
   const [text, setText] = useState("");
@@ -228,11 +228,8 @@ export default function Home({ onNavigate }: { onNavigate: (tab: string) => void
     .filter((j) => j.enabled && j.next_run_at && new Date(j.next_run_at).getTime() > Date.now())
     .sort((a, b) => (a.next_run_at ?? "").localeCompare(b.next_run_at ?? ""))[0];
   const sub = mode === "hermes" && hermesNext
-    ? `Next: ${hermesNext.name} at ${new Date(hermesNext.next_run_at!).toTimeString().slice(0, 5)} · each ring is a cron job`
+    ? `On channa · next: ${hermesNext.name} at ${new Date(hermesNext.next_run_at!).toTimeString().slice(0, 5)}`
     : current.sub;
-
-  const shortsViews = useMemo(() => (yt.data?.channels[0]?.items ?? [])
-    .filter((i) => i.kind === "short").slice(0, 60).reverse().map((i) => i.views ?? 0), [yt.data]);
 
   const go = async () => {
     const prompt = text.trim();
@@ -252,18 +249,7 @@ export default function Home({ onNavigate }: { onNavigate: (tab: string) => void
     setText("");
   };
 
-  const core = mode === "claude" ? (
-    <CodeCore alert={bad} working={working} machines={devices.map((d) => ({
-      id: d.id, name: d.name, online: !!status[d.id]?.probe, selected: d.id === target,
-      sessions: open.filter((x) => x.kind === "claude" && x.deviceId === d.id && x.alive).length,
-    }))} />
-  ) : mode === "hermes" ? (
-    <OrbitCore jobs={status["channa"]?.probe?.hermes?.jobs ?? []} running={status["channa"]?.probe?.hermes?.running} alert={bad} />
-  ) : mode === "zara" ? (
-    <WaveCore views={shortsViews} postedToday={pipelines.data?.posting.youtube_today ?? null} alert={bad} working={working} />
-  ) : (
-    <SpiralCore state={coreState} />
-  );
+  const core = <Core shape={current.shape} rgb={current.rgb} state={coreState} />;
 
   const left = mode === "claude" ? <ClaudeMachines target={target} onPick={setTarget} />
     : mode === "hermes" ? <HermesJobs />
