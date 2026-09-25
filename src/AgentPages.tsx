@@ -3,11 +3,12 @@ import { Action, piActions } from "./actions";
 import { runs, statusStore, when } from "./api";
 import { Badge, Dot, OsGlyph, RunPanel, runAction, useRuns, useStatus } from "./components";
 import { DEFAULT_CWD, SessionKind, sessions, vault } from "./hub";
+import { ChatPanel } from "./ChatPanel";
 import { HermesPanel } from "./Overview";
 import { openSession, TerminalView, useSessions } from "./terminals";
 
 /** Session tabs + the live terminal for one kind, filling the page. */
-function Deck({ kind, empty }: { kind: SessionKind; empty: React.ReactNode }) {
+export function Deck({ kind, empty }: { kind: SessionKind; empty: React.ReactNode }) {
   const { sessions: all, active } = useSessions();
   const { devices } = useStatus();
   const mine = all.filter((s) => s.kind === kind);
@@ -25,6 +26,32 @@ function Deck({ kind, empty }: { kind: SessionKind; empty: React.ReactNode }) {
         ))}
       </div>
       <TerminalView session={current} className="deck-term" />
+    </div>
+  );
+}
+
+/** Hermes and Zara: a chat panel, with their own terminal program one click away
+ * (for slash commands and anything the chat can't do). */
+function AgentTalk({ agent }: { agent: "hermes" | "zara" }) {
+  const [view, setView] = useState<"chat" | "terminal">("chat");
+  const { devices } = useStatus();
+  const { sessions: all } = useSessions();
+  const name = agent === "hermes" ? "Hermes" : "Zara";
+  if (view === "chat") {
+    return <ChatPanel agent={agent} onTerminal={() => {
+      if (!all.some((s) => s.kind === agent && s.alive)) openSession(devices, agent);
+      setView("terminal");
+    }} />;
+  }
+  return (
+    <div className="talk-term">
+      <div className="talk-bar">
+        <button className="btn btn-xs" onClick={() => setView("chat")}>← Chat</button>
+        <span className="muted small">{name}'s own terminal program</span>
+        <span className="spacer" />
+        <button className="btn btn-xs" onClick={() => openSession(devices, agent)}>New terminal</button>
+      </div>
+      <Deck kind={agent} empty={<><div className="deck-big">No terminal open</div><div className="muted">Use New terminal, or go back to the chat.</div></>} />
     </div>
   );
 }
@@ -135,8 +162,6 @@ export function HermesView() {
         <span className={pr?.hermes?.running ? "muted small" : "tone-bad small"}>
           {pr ? (pr.hermes?.running ? `gateway up since ${when(pr.hermes.since)}` : "gateway not running") : "checking channa…"}
         </span>
-        <span className="spacer" />
-        <button className="hud-btn" onClick={() => openSession(devices, "hermes")}>Chat with Hermes →</button>
       </div>
       <div className="facts">
         <span>Wi-Fi <b>{pr?.wifi ? `${pr.wifi.state} · ${pr.wifi.signal ?? "?"}%` : "—"}</b></span>
@@ -156,7 +181,7 @@ export function HermesView() {
           </div>
         </div>
         <div className="stack">
-          <Deck kind="hermes" empty={<><div className="deck-big">Talk to Hermes</div><div className="muted">Opens his own chat on channa — the same Hermes as Telegram and Discord.</div></>} />
+          <AgentTalk agent="hermes" />
           <VaultNotes folder="Hermes" />
         </div>
       </div>
@@ -186,7 +211,6 @@ export function ZaraView() {
         <span className="muted small">{zara.length ? `${up}/${zara.length} services running` : "reading the Pi…"}</span>
         <span className="spacer" />
         <button className="btn" onClick={() => runAction(honesty, devices)}>Honesty eval</button>
-        <button className="hud-btn" onClick={() => openSession(devices, "zara")}>Chat with Zara →</button>
       </div>
       <div className="two-col">
         <div className="stack">
@@ -211,7 +235,7 @@ export function ZaraView() {
           </div>
         </div>
         <div className="stack">
-          <Deck kind="zara" empty={<><div className="deck-big">Talk to Zara</div><div className="muted">Her terminal chat on the Pi — the same Zara and history as Telegram.</div></>} />
+          <AgentTalk agent="zara" />
           <VaultNotes folder="Zara" />
         </div>
       </div>

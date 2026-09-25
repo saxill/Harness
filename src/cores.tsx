@@ -37,7 +37,7 @@ function particles(shape: CoreShape): P[] {
   }
 }
 
-export function Core({ shape, state, rgb = "235,242,246" }: { shape: CoreShape; state: CoreState; rgb?: string }) {
+export function Core({ shape, state, rgb = "235,242,246", small = false }: { shape: CoreShape; state: CoreState; rgb?: string; small?: boolean }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const live = useRef({ shape, state, rgb, pts: particles(shape) });
   if (live.current.shape !== shape) live.current.pts = particles(shape);
@@ -116,5 +116,5 @@ export function Core({ shape, state, rgb = "235,242,246" }: { shape: CoreShape; 
     return () => { cancelAnimationFrame(raf); clearInterval(slow); document.removeEventListener("visibilitychange", onVis); };
   }, []);
 
-  return <canvas ref={canvas} className="core" aria-hidden />;
+  return <canvas ref={canvas} className={small ? "core core-mini" : "core"} aria-hidden />;
 }

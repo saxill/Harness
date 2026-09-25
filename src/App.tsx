@@ -49,7 +49,8 @@ export default function App() {
   const { sessions } = useSessions();
   const openRun = (id: string) => { setRunFor(id); setTab("run"); };
   const count = (k: SessionKind) => sessions.filter((s) => s.kind === k && s.alive).length;
-  const deckKind: SessionKind | undefined = tab === "claude" || tab === "hermes" || tab === "zara" ? tab : undefined;
+  const [homeDeck, setHomeDeck] = useState<SessionKind | undefined>();
+  const deckKind: SessionKind | undefined = tab === "claude" || tab === "hermes" || tab === "zara" ? tab : tab === "home" ? homeDeck : undefined;
 
   return (
     <div className="shell"
@@ -84,7 +85,7 @@ export default function App() {
 
       <div className="main-wrap">
         <main className={`main ${tab === "home" ? "main-hud" : ""}`}>
-          {tab === "home" && <Home onNavigate={(t) => setTab(t as Tab)} />}
+          {tab === "home" && <Home onNavigate={(t) => setTab(t as Tab)} onDeck={setHomeDeck} />}
           {tab === "claude" && <ClaudeView />}
           {tab === "hermes" && <HermesView />}
           {tab === "zara" && <ZaraView />}

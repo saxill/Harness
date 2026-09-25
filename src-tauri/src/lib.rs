@@ -1,4 +1,5 @@
 mod agent;
+mod chat;
 mod devices;
 mod exec;
 mod integrations;
@@ -24,6 +25,7 @@ pub fn run() {
             devices::devices_save,
             exec::run_start,
             exec::run_cancel,
+            chat::chat_send,
             exec::history_list,
             probe::probe_device,
             probe::probe_pipelines,

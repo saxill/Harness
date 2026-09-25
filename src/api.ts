@@ -117,7 +117,7 @@ export const api = {
 
 type Listener = () => void;
 
-class Emitter {
+export class Emitter {
   private listeners = new Set<Listener>();
   subscribe = (l: Listener) => {
     this.listeners.add(l);

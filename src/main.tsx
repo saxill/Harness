@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import { runs, statusStore } from "./api";
+import { chats } from "./chat";
 import { sessions, youtube } from "./hub";
 import "@fontsource/barlow-condensed/300.css";
 import "@fontsource/jetbrains-mono/400.css";
@@ -13,6 +14,7 @@ async function boot() {
   if (import.meta.env.DEV && !("__TAURI_INTERNALS__" in window)) await import("./dev/mock");
   await runs.init();
   await sessions.init();
+  await chats.init();
   statusStore.init();
   youtube.start();
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

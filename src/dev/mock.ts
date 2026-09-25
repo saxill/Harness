@@ -81,6 +81,19 @@ const handlers: Record<string, (a: Record<string, string>) => unknown> = {
   pty_write: ({ sessionId, data }) => { emit("pty://data", { sessionId, data: btoa(unescape(encodeURIComponent(String(data).replace(/\r/g, "\r\n")))) }); return null; },
   pty_resize: () => null,
   pty_close: () => null,
+  chat_send: ({ turnId, agent, message }) => {
+    const reply = agent === "zara"
+      ? `Yes sir. Today **2 Shorts** went out and 3 are queued.\n\n- Namibia vs Congo: 249 views\n- Gemini 3.8 Live: 229 views\n\nYou said: \`${message}\``
+      : `Checked the jobs. All 9 ran fine today.\n\n1. daily check — ok\n2. linkedin-watch — ok\n\nSee https://example.com for details.`;
+    emit("chat://line", { turnId, line: JSON.stringify({ type: "system", subtype: "init", session_id: "20260926_mock" }) });
+    const words = reply.split(/(?<= )/);
+    words.forEach((w, i) => setTimeout(() => emit("chat://line", { turnId, line: JSON.stringify({ type: "text", text: w }) }), 900 + i * 60));
+    setTimeout(() => {
+      emit("chat://line", { turnId, line: JSON.stringify({ type: "result", text: reply, session_id: "20260926_mock", duration_ms: 2400 }) });
+      emit("chat://done", { turnId, code: 0, cancelled: false, stderr: [] });
+    }, 1000 + words.length * 60);
+    return null;
+  },
   "plugin:event|listen": ({ event, handler }) => {
     const id = Number(handler);
     listeners.set(event, [...(listeners.get(event) ?? []), id]);

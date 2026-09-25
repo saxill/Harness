@@ -5,9 +5,12 @@ import { runAction, useRuns, useStatus } from "./components";
 import {
   compact, Directive, DIRECTIVES_PATH, DIRECTIVES_TEMPLATE, laya, parseDirectives, SessionKind, vault, youtube,
 } from "./hub";
+import { chats } from "./chat";
 import { Core, CoreShape } from "./cores";
 import { ClaudeMachines, ClaudeSide, HermesJobs, HermesSide, ZaraSide, ZaraToday } from "./modes";
 import { Alert, alertsFor } from "./Overview";
+import { Deck } from "./AgentPages";
+import { ChatPanel, ChatStrip } from "./ChatPanel";
 import { openSession, useSessions } from "./terminals";
 
 type Mode = "auto" | "claude" | "hermes" | "zara";
@@ -194,10 +197,11 @@ function QuickActions({ devices }: { devices: Device[] }) {
 
 // ---------- page ----------
 
-export default function Home({ onNavigate }: { onNavigate: (tab: string) => void }) {
+export default function Home({ onNavigate, onDeck }: { onNavigate: (tab: string) => void; onDeck?: (kind?: SessionKind) => void }) {
   const { devices, status, pipelines } = useStatus();
   const runsNow = useRuns().filter((r) => r.running).length;
   const { sessions: open } = useSessions();
+  const chatThreads = useSyncExternalStore(chats.subscribe, chats.getSnapshot);
   const [mode, setModeState] = useState<Mode>(savedMode);
   const [target, setTarget] = useState("laptop");
   const [text, setText] = useState("");
@@ -205,6 +209,10 @@ export default function Home({ onNavigate }: { onNavigate: (tab: string) => void
   const [routing, setRouting] = useState(false);
   const [layaOk, setLayaOk] = useState<boolean | null>(null);
   const [vaultOk, setVaultOk] = useState<boolean | null>(null);
+
+  // Which modes have their conversation open in the centre (the core shrinks to the top).
+  const [talk, setTalk] = useState<Record<Mode, boolean>>({ auto: false, claude: false, hermes: false, zara: false });
+  const openTalk = (m: Mode) => setTalk((t) => ({ ...t, [m]: true }));
 
   const setMode = (m: Mode) => {
     setModeState(m);
@@ -220,7 +228,7 @@ export default function Home({ onNavigate }: { onNavigate: (tab: string) => void
   const allAlerts = useMemo(() => alertsFor(devices, status, pipelines.data), [devices, status, pipelines.data]);
   const alerts = allAlerts.filter((a) => inScope(mode, a));
   const online = devices.filter((d) => status[d.id]?.probe).length;
-  const working = routing || runsNow > 0;
+  const working = routing || runsNow > 0 || !!chatThreads.hermes.busy || !!chatThreads.zara.busy;
   const bad = alerts.some((a) => a.tone === "bad");
   const coreState = working ? "working" : bad ? "alert" : "idle";
   const current = MODES.find((m) => m.id === mode)!;
@@ -233,23 +241,51 @@ export default function Home({ onNavigate }: { onNavigate: (tab: string) => void
 
   const go = async () => {
     const prompt = text.trim();
-    let kind: SessionKind = mode === "auto" ? "claude" : mode;
+    let kind: Exclude<SessionKind, "shell"> = mode === "auto" ? "claude" : mode;
+    let routed = "";
     if (mode === "auto") {
       if (!prompt) return;
       setRouting(true);
       try {
         const r = await laya.route(prompt);
-        kind = r.choice as SessionKind;
-        setNote(`Laya → ${MODES.find((m) => m.id === kind)?.label} (${Math.round((r.probabilities[r.choice] ?? 0) * 100)}%)`);
+        kind = r.choice as Exclude<SessionKind, "shell">;
+        routed = `Laya sent this to ${MODES.find((m) => m.id === kind)?.label} (${Math.round((r.probabilities[r.choice] ?? 0) * 100)}% sure)`;
       } catch {
-        setNote("Laya unreachable — sent to Claude Code");
+        routed = "Laya unreachable, so this went to Claude Code";
       } finally { setRouting(false); }
     }
-    openSession(devices, kind, kind === "claude" ? target : undefined, prompt || undefined);
     setText("");
+    // Hermes and Zara answer in the strip above the message box; Claude Code
+    // opens in the centre as its own terminal.
+    if (kind === "hermes" || kind === "zara") {
+      if (prompt) chats.send(kind, prompt);
+    } else {
+      openSession(devices, "claude", target, prompt || undefined);
+      openTalk(kind);
+    }
+    setMode(kind);
+    if (routed) setNote(routed);
   };
 
   const core = <Core shape={current.shape} rgb={current.rgb} state={coreState} />;
+  const statusline = (
+    <div className="statusline">
+      <span className={`st ${coreState}`}>● {mode === "auto" ? "CORE" : current.label} · {coreState.toUpperCase()}</span>
+      <span>{online}/{devices.length} MACHINES</span>
+      <span className={vaultOk === false ? "off" : ""}>{vaultOk === null ? "VAULT …" : vaultOk ? "VAULT CONNECTED" : "VAULT OFFLINE"}</span>
+      <span className={layaOk === false ? "off" : ""}>{layaOk === null ? "LAYA …" : layaOk ? "LAYA READY" : "LAYA OFFLINE"}</span>
+      <span>{open.length} TERMINALS</span>
+    </div>
+  );
+  const agentKind = mode === "hermes" || mode === "zara" ? mode : null;
+  const hasClaude = open.some((x) => x.kind === "claude");
+  // Hermes / Zara: once there's a conversation it shows above the message box.
+  const convo = !!agentKind && chatThreads[agentKind].msgs.length > 0;
+  const agentBusy = !!agentKind && !!chatThreads[agentKind].busy;
+  const talking = mode !== "auto" && talk[mode] && (mode !== "claude" || hasClaude);
+  // While Claude Code sits in the centre, the bottom dock leaves its sessions alone.
+  useEffect(() => { onDeck?.(talking && mode === "claude" ? "claude" : undefined); }, [talking, mode, onDeck]);
+  useEffect(() => () => onDeck?.(undefined), [onDeck]);
 
   const left = mode === "claude" ? <ClaudeMachines target={target} onPick={setTarget} />
     : mode === "hermes" ? <HermesJobs />
@@ -284,37 +320,64 @@ export default function Home({ onNavigate }: { onNavigate: (tab: string) => void
       <div className="hud-grid">
         {left}
 
-        <section className="hud-center">
-          <div className="statusline">
-            <span className={`st ${coreState}`}>● {mode === "auto" ? "CORE" : current.label} · {coreState.toUpperCase()}</span>
-            <span>{online}/{devices.length} MACHINES</span>
-            <span className={vaultOk === false ? "off" : ""}>{vaultOk === null ? "VAULT …" : vaultOk ? "VAULT CONNECTED" : "VAULT OFFLINE"}</span>
-            <span className={layaOk === false ? "off" : ""}>{layaOk === null ? "LAYA …" : layaOk ? "LAYA READY" : "LAYA OFFLINE"}</span>
-            <span>{open.length} TERMINALS</span>
-          </div>
-          {core}
-          <div className="core-name">{current.label}</div>
-          <div className="core-sub">{sub}</div>
-          {mode === "claude" && (
-            <div className="targets hud-targets">
-              {devices.map((d) => (
-                <button key={d.id} className={`chip ${target === d.id ? "chip-on" : ""}`} onClick={() => setTarget(d.id)}>{d.name}</button>
-              ))}
+        {talking ? (
+          <section className="hud-center talking">
+            {statusline}
+            <div className="talk-top">
+              <Core shape={current.shape} rgb={current.rgb} state={coreState} small />
+              <div className="talk-title">
+                <div className="core-name">{current.label}</div>
+                <div className="core-sub">{note || sub}</div>
+              </div>
+              <span className="spacer" />
+              {agentKind && <button className="hud-btn" onClick={() => onNavigate(agentKind)}>Open in {current.label} tab ↗</button>}
+              {mode === "claude" && <button className="hud-btn" onClick={() => openSession(devices, "claude", target)}>+ Session on {devices.find((d) => d.id === target)?.name}</button>}
+              <button className="hud-btn" onClick={() => setTalk((t) => ({ ...t, [mode]: false }))}>{agentKind ? "⤡ Restore" : "Minimise"}</button>
             </div>
-          )}
-          <form className="ask" onSubmit={(e) => { e.preventDefault(); go(); }}>
-            <input value={text} onChange={(e) => setText(e.target.value)}
-              placeholder={mode === "auto" ? "Ask anything — Laya routes it" : mode === "claude" ? `What should Claude Code do on ${devices.find((d) => d.id === target)?.name ?? "it"}? (empty = just open it)` : `Message ${current.label.toLowerCase()}…`} />
-            <button className="hud-btn" type="submit" disabled={routing || (mode === "auto" && !text.trim())}>{mode === "auto" ? "Route" : "Open"}</button>
-          </form>
-          {note && <div className="hud-note">{note}</div>}
-          {alerts.length > 0 && (
-            <div className="hud-alerts">
-              {alerts.slice(0, 3).map((a, i) => <div key={i} className={`hud-alert ${a.tone}`}>{a.text}</div>)}
-              {alerts.length > 3 && <button className="hud-link" onClick={() => onNavigate("machines")}>+{alerts.length - 3} more →</button>}
-            </div>
-          )}
-        </section>
+            {agentKind
+              ? <ChatPanel key={agentKind} agent={agentKind} bare />
+              : <Deck kind="claude" empty={<div className="hud-note">No Claude Code session open.</div>} />}
+          </section>
+        ) : (
+          <section className={`hud-center ${convo ? "has-convo" : ""}`}>
+            {statusline}
+            {core}
+            <div className="core-name">{current.label}</div>
+            <div className="core-sub">{sub}</div>
+            {mode === "claude" && (
+              <div className="targets hud-targets">
+                {devices.map((d) => (
+                  <button key={d.id} className={`chip ${target === d.id ? "chip-on" : ""}`} onClick={() => setTarget(d.id)}>{d.name}</button>
+                ))}
+              </div>
+            )}
+            {convo && agentKind && <ChatStrip agent={agentKind} />}
+            <form className="ask" onSubmit={(e) => { e.preventDefault(); go(); }}>
+              <input value={text} onChange={(e) => setText(e.target.value)}
+                placeholder={mode === "auto" ? "Ask anything — Laya routes it" : mode === "claude" ? `What should Claude Code do on ${devices.find((d) => d.id === target)?.name ?? "it"}? (empty = just open it)` : `Message ${current.label.toLowerCase()}…`} />
+              {agentBusy
+                ? <button className="hud-btn" type="button" onClick={() => agentKind && chats.stop(agentKind)}>Stop</button>
+                : <button className="hud-btn" type="submit" disabled={routing || (mode !== "claude" && !text.trim())}>{mode === "auto" ? "Route" : mode === "claude" ? "Open" : "Send"}</button>}
+            </form>
+            {convo && agentKind && (
+              <div className="convo-actions">
+                <button className="hud-link" onClick={() => openTalk(mode)}>⤢ Maximise</button>
+                <button className="hud-link" onClick={() => onNavigate(agentKind)}>Open in {current.label} tab ↗</button>
+                <button className="hud-link" onClick={() => chats.reset(agentKind)} disabled={agentBusy}>{agentKind === "hermes" ? "New chat" : "Clear"}</button>
+              </div>
+            )}
+            {note && <div className="hud-note">{note}</div>}
+            {mode === "claude" && !talk.claude && hasClaude && (
+              <button className="hud-link" onClick={() => openTalk(mode)}>Back to the conversation →</button>
+            )}
+            {!convo && alerts.length > 0 && (
+              <div className="hud-alerts">
+                {alerts.slice(0, 3).map((a, i) => <div key={i} className={`hud-alert ${a.tone}`}>{a.text}</div>)}
+                {alerts.length > 3 && <button className="hud-link" onClick={() => onNavigate("machines")}>+{alerts.length - 3} more →</button>}
+              </div>
+            )}
+          </section>
+        )}
 
         {right}
       </div>
