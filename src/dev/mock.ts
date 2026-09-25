@@ -1,7 +1,9 @@
 // DEV ONLY. Lets the interface run in an ordinary browser for design work by
 // standing in for the Rust side, fed with real status captured from the
 // machines (fixtures.json, git-ignored). Never loaded inside the real app.
-import fixtures from "./fixtures.json";
+// A glob, so a fresh checkout without the file still type-checks and builds.
+const found = import.meta.glob("./fixtures.json", { eager: true, import: "default" });
+const fixtures = found["./fixtures.json"] ?? { probes: {}, pipelines: null, youtube: null };
 
 type Cb = (e: unknown) => void;
 const callbacks = new Map<number, Cb>();
