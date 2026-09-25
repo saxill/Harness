@@ -240,6 +240,7 @@ class StatusStore extends Emitter {
   pipelines: { data?: Pipelines; error?: string; at?: number; loading: boolean } = { loading: false };
   private snapshot = { devices: this.devices, status: this.status, pipelines: this.pipelines };
   private timers: number[] = [];
+  private lastAll = 0;
 
   getSnapshot = () => this.snapshot;
 
@@ -252,7 +253,18 @@ class StatusStore extends Emitter {
     this.devices = await api.devices();
     this.publish();
     this.refreshAll();
-    this.timers.push(window.setInterval(() => this.refreshAll(), 30_000));
+    // Every 30 s while you're using the window, every 2 min while it's in the
+    // background, every 5 min while it's hidden, so a Harness left open doesn't
+    // SSH into every machine twice a minute for nobody. Coming back refreshes.
+    this.timers.push(window.setInterval(() => {
+      const every = document.hidden ? 5 * 60_000 : document.hasFocus() ? 30_000 : 2 * 60_000;
+      if (Date.now() - this.lastAll >= every - 1_000) this.refreshAll();
+    }, 30_000));
+    const back = () => {
+      if (!document.hidden && Date.now() - this.lastAll >= 30_000) this.refreshAll();
+    };
+    document.addEventListener("visibilitychange", back);
+    window.addEventListener("focus", back);
   }
 
   async reloadDevices() {
@@ -262,6 +274,7 @@ class StatusStore extends Emitter {
   }
 
   refreshAll() {
+    this.lastAll = Date.now();
     this.devices.forEach((d) => this.refresh(d.id));
     if (this.devices.some((d) => d.pipelines)) this.refreshPipelines();
   }
