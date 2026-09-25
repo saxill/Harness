@@ -3,33 +3,34 @@ import { hermesActions, piActions } from "./actions";
 import { ago, Device, duration, Pipelines, Probe, statusStore, Status, when } from "./api";
 import { Badge, Dot, Meter, OsGlyph, runAction, useStatus } from "./components";
 
-export type Alert = { tone: "bad" | "warn"; text: string };
+/** `device` and `topic` let each home mode show only the alerts that concern it. */
+export type Alert = { tone: "bad" | "warn"; text: string; device?: string; topic?: "machine" | "hermes" | "pipelines" };
 
 export function alertsFor(devices: Device[], status: Record<string, Status>, p?: Pipelines): Alert[] {
   const out: Alert[] = [];
   for (const d of devices) {
     const s = status[d.id];
     if (!s) continue;
-    if (s.error && !s.probe) out.push({ tone: "bad", text: `${d.name} is unreachable — ${s.error.slice(0, 90)}` });
+    if (s.error && !s.probe) out.push({ tone: "bad", text: `${d.name} is unreachable — ${s.error.slice(0, 90)}`, device: d.id, topic: "machine" });
     const pr = s.probe;
     if (!pr) continue;
     for (const k of pr.disks ?? []) {
-      if (k.used_percent >= 90) out.push({ tone: k.used_percent >= 95 ? "bad" : "warn", text: `${d.name} ${k.name} is ${k.used_percent}% full (${k.free_gb} GB free)` });
+      if (k.used_percent >= 90) out.push({ tone: k.used_percent >= 95 ? "bad" : "warn", text: `${d.name} ${k.name} is ${k.used_percent}% full (${k.free_gb} GB free)`, device: d.id, topic: "machine" });
     }
-    if (pr.failed_units) out.push({ tone: "warn", text: `${d.name}: ${pr.failed_units} failed service(s) — ${(pr.failed_names ?? []).join(", ")}` });
-    if (pr.wifi && pr.wifi.state !== "connected") out.push({ tone: "bad", text: `${d.name} Wi-Fi is ${pr.wifi.state}` });
-    if (pr.hermes && !pr.hermes.running) out.push({ tone: "bad", text: "Hermes' gateway is not running on channa" });
+    if (pr.failed_units) out.push({ tone: "warn", text: `${d.name}: ${pr.failed_units} failed service(s) — ${(pr.failed_names ?? []).join(", ")}`, device: d.id, topic: "machine" });
+    if (pr.wifi && pr.wifi.state !== "connected") out.push({ tone: "bad", text: `${d.name} Wi-Fi is ${pr.wifi.state}`, device: d.id, topic: "machine" });
+    if (pr.hermes && !pr.hermes.running) out.push({ tone: "bad", text: "Hermes' gateway is not running on channa", device: d.id, topic: "hermes" });
     for (const j of pr.hermes?.jobs ?? []) {
-      if (j.enabled && j.last_status && j.last_status !== "ok") out.push({ tone: "warn", text: `Hermes job “${j.name}” last ${j.last_status}${j.last_error ? ": " + j.last_error.slice(0, 80) : ""}` });
+      if (j.enabled && j.last_status && j.last_status !== "ok") out.push({ tone: "warn", text: `Hermes job “${j.name}” last ${j.last_status}${j.last_error ? ": " + j.last_error.slice(0, 80) : ""}`, device: d.id, topic: "hermes" });
     }
   }
   if (p) {
     const down = p.services.filter((s) => s.state !== "active");
-    if (down.length) out.push({ tone: "bad", text: `Pi services not running: ${down.map((s) => s.name).join(", ")}` });
-    if ((p.factory.counts.blocked ?? 0) > 0) out.push({ tone: "warn", text: `${p.factory.counts.blocked} Short(s) blocked in the factory` });
-    if (p.queue.length > 0 && !p.queue.some((q) => q.fact_checked)) out.push({ tone: "warn", text: "No queued Short has passed the fact-check — the next slot will post nothing" });
-    if (p.queue.length === 0) out.push({ tone: "warn", text: "The Shorts queue is empty" });
-    if (p.posting.last_instagram?.status === "failed") out.push({ tone: "warn", text: `Last Instagram cross-post failed: ${p.posting.last_instagram.error ?? ""}`.slice(0, 120) });
+    if (down.length) out.push({ tone: "bad", text: `Pi services not running: ${down.map((s) => s.name).join(", ")}`, device: "pi", topic: "pipelines" });
+    if ((p.factory.counts.blocked ?? 0) > 0) out.push({ tone: "warn", text: `${p.factory.counts.blocked} Short(s) blocked in the factory`, device: "pi", topic: "pipelines" });
+    if (p.queue.length > 0 && !p.queue.some((q) => q.fact_checked)) out.push({ tone: "warn", text: "No queued Short has passed the fact-check — the next slot will post nothing", device: "pi", topic: "pipelines" });
+    if (p.queue.length === 0) out.push({ tone: "warn", text: "The Shorts queue is empty", device: "pi", topic: "pipelines" });
+    if (p.posting.last_instagram?.status === "failed") out.push({ tone: "warn", text: `Last Instagram cross-post failed: ${p.posting.last_instagram.error ?? ""}`.slice(0, 120), device: "pi", topic: "pipelines" });
   }
   return out;
 }

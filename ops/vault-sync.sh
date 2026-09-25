@@ -14,13 +14,13 @@ LAPTOP_IP=100.120.253.10
 FOLDER=saxil-vault
 SSH=(ssh -o BatchMode=yes -o ConnectTimeout=10)
 
-"${SSH[@]}" $LAPTOP 'command -v syncthing >/dev/null' </dev/null \
+"${SSH[@]}" $LAPTOP 'PATH=$HOME/.local/bin:$PATH; command -v syncthing >/dev/null' </dev/null \
   || { echo "syncthing isn't installed on the laptop: sudo pacman -S --needed syncthing" >&2; exit 1; }
 
 echo "== laptop: start syncthing"
 LAPTOP_ID=$("${SSH[@]}" $LAPTOP "bash -s" <<'EOF'
 set -e
-export STNODEFAULTFOLDER=1
+export PATH=$HOME/.local/bin:$PATH STNODEFAULTFOLDER=1
 systemctl --user enable --now syncthing >/dev/null 2>&1
 for i in $(seq 1 20); do syncthing cli show system >/dev/null 2>&1 && break; sleep 1; done
 syncthing cli show system | python3 -c 'import json,sys; print(json.load(sys.stdin)["myID"])'
@@ -34,6 +34,7 @@ echo "pi     $PI_ID"
 echo "== laptop: Tailscale only, add the Pi, share the vault"
 "${SSH[@]}" $LAPTOP "bash -s" <<EOF
 set -e
+export PATH=\$HOME/.local/bin:\$PATH
 C="syncthing cli"
 \$C config options global-ann-enabled set false
 \$C config options local-ann-enabled set false
@@ -56,8 +57,10 @@ echo "== pi: add the laptop and share the vault with it"
 "${SSH[@]}" $PI "bash -s" <<EOF
 set -e
 C="syncthing cli --home=\$HOME/storage/syncthing"
+# the Pi's 1.x CLI panics on --addresses, so add first, then replace the "dynamic" address
 \$C config devices list | grep -q "$LAPTOP_ID" \
-  || \$C config devices add --device-id "$LAPTOP_ID" --name laptop --addresses "tcp://$LAPTOP_IP:22000"
+  || \$C config devices add --device-id "$LAPTOP_ID" --name laptop
+\$C config devices "$LAPTOP_ID" addresses 0 set "tcp://$LAPTOP_IP:22000"
 \$C config folders $FOLDER devices list | grep -q "$LAPTOP_ID" \
   || \$C config folders $FOLDER devices add --device-id "$LAPTOP_ID"
 EOF

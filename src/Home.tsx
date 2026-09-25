@@ -1,20 +1,38 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { piActions } from "./actions";
 import { Device, statusStore, when } from "./api";
 import { runAction, useRuns, useStatus } from "./components";
 import {
   compact, Directive, DIRECTIVES_PATH, DIRECTIVES_TEMPLATE, laya, parseDirectives, SessionKind, vault, youtube,
 } from "./hub";
-import { alertsFor } from "./Overview";
+import { CodeCore, OrbitCore, SpiralCore, WaveCore } from "./cores";
+import { ClaudeMachines, ClaudeSide, HermesJobs, HermesSide, ZaraSide, ZaraToday } from "./modes";
+import { Alert, alertsFor } from "./Overview";
 import { openSession, useSessions } from "./terminals";
 
 type Mode = "auto" | "claude" | "hermes" | "zara";
 const MODES: { id: Mode; label: string; sub: string }[] = [
   { id: "auto", label: "AUTO", sub: "Laya picks who handles it" },
   { id: "claude", label: "CLAUDE CODE", sub: "Opens a session on the machine you pick" },
-  { id: "hermes", label: "HERMES", sub: "Research, browsing, carousels · on channa" },
-  { id: "zara", label: "ZARA", sub: "Assistant, memory, pipelines · on the Pi" },
+  { id: "hermes", label: "HERMES", sub: "His day on channa · each ring is a cron job" },
+  { id: "zara", label: "ZARA", sub: "The Pi's pipelines · each bar is a recent Short's views" },
 ];
+
+/** Which alerts each mode shows: everything, machines only, channa, or the Pi. */
+const inScope = (mode: Mode, a: Alert) =>
+  mode === "auto" ? true
+    : mode === "claude" ? a.topic === "machine"
+      : mode === "hermes" ? a.device === "channa"
+        : a.device === "pi";
+
+const MODE_KEY = "harness.home.mode";
+function savedMode(): Mode {
+  try {
+    const m = localStorage.getItem(MODE_KEY);
+    if (m && MODES.some((x) => x.id === m)) return m as Mode;
+  } catch { /* storage can be unavailable */ }
+  return "auto";
+}
 
 const useYoutube = () => useSyncExternalStore(youtube.subscribe, youtube.getSnapshot);
 
@@ -44,49 +62,6 @@ function Spark({ values, color = "var(--hud-line)" }: { values: number[]; color?
       <circle cx={last[0]} cy={last[1]} r="1.6" fill={color} />
     </svg>
   );
-}
-
-/** The spiral core. Colour follows state; it holds still for reduced motion. */
-function Core({ state }: { state: "idle" | "working" | "alert" }) {
-  const canvas = useRef<HTMLCanvasElement>(null);
-  const stateRef = useRef(state);
-  stateRef.current = state;
-  useEffect(() => {
-    const c = canvas.current!;
-    const ctx = c.getContext("2d")!;
-    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const N = 1400;
-    const stars = Array.from({ length: N }, (_, i) => {
-      const arm = i % 3, t = Math.random();
-      return { r: Math.pow(t, 0.7), a: arm * ((Math.PI * 2) / 3) + t * 5.2 + (Math.random() - 0.5) * 0.55, s: Math.random() * 1.4 + 0.3, tw: Math.random() * 6 };
-    });
-    let raf = 0, rot = 0;
-    const draw = () => {
-      const w = (c.width = c.clientWidth * devicePixelRatio), h = (c.height = c.clientHeight * devicePixelRatio);
-      const R = Math.min(w, h) * 0.46;
-      ctx.clearRect(0, 0, w, h);
-      const col = stateRef.current === "alert" ? "255,110,110" : stateRef.current === "working" ? "255,190,70" : "235,242,246";
-      const glow = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, R * 0.5);
-      glow.addColorStop(0, `rgba(${col},0.35)`);
-      glow.addColorStop(1, "rgba(0,0,0,0)");
-      ctx.fillStyle = glow;
-      ctx.fillRect(0, 0, w, h);
-      for (const st of stars) {
-        const a = st.a + rot * (1.2 - st.r * 0.6);
-        const x = w / 2 + Math.cos(a) * st.r * R, y = h / 2 + Math.sin(a) * st.r * R * 0.92;
-        const alpha = 0.35 + 0.65 * Math.abs(Math.sin(st.tw + rot * 3)) * (1 - st.r * 0.5);
-        ctx.fillStyle = `rgba(${col},${alpha})`;
-        ctx.fillRect(x, y, st.s * devicePixelRatio, st.s * devicePixelRatio);
-      }
-      rot += stateRef.current === "working" ? 0.006 : 0.0018;
-      if (!still && !document.hidden) raf = requestAnimationFrame(draw);
-    };
-    draw();
-    const onVis = () => { if (!document.hidden && !still) { cancelAnimationFrame(raf); raf = requestAnimationFrame(draw); } };
-    document.addEventListener("visibilitychange", onVis);
-    return () => { cancelAnimationFrame(raf); document.removeEventListener("visibilitychange", onVis); };
-  }, []);
-  return <canvas ref={canvas} className="core" aria-hidden />;
 }
 
 // ---------- panels ----------
@@ -222,7 +197,8 @@ export default function Home({ onNavigate }: { onNavigate: (tab: string) => void
   const { devices, status, pipelines } = useStatus();
   const runsNow = useRuns().filter((r) => r.running).length;
   const { sessions: open } = useSessions();
-  const [mode, setMode] = useState<Mode>("auto");
+  const yt = useYoutube();
+  const [mode, setModeState] = useState<Mode>(savedMode);
   const [target, setTarget] = useState("laptop");
   const [text, setText] = useState("");
   const [note, setNote] = useState("");
@@ -230,15 +206,33 @@ export default function Home({ onNavigate }: { onNavigate: (tab: string) => void
   const [layaOk, setLayaOk] = useState<boolean | null>(null);
   const [vaultOk, setVaultOk] = useState<boolean | null>(null);
 
+  const setMode = (m: Mode) => {
+    setModeState(m);
+    setNote("");
+    try { localStorage.setItem(MODE_KEY, m); } catch { /* not important */ }
+  };
+
   useEffect(() => {
     laya.judge("health check", { ok: { type: "noul", instructions: "Is this a health check?" } }).then(() => setLayaOk(true), () => setLayaOk(false));
     vault.list().then((r) => setVaultOk(r.exists), () => setVaultOk(false));
   }, []);
 
-  const alerts = useMemo(() => alertsFor(devices, status, pipelines.data), [devices, status, pipelines.data]);
+  const allAlerts = useMemo(() => alertsFor(devices, status, pipelines.data), [devices, status, pipelines.data]);
+  const alerts = allAlerts.filter((a) => inScope(mode, a));
   const online = devices.filter((d) => status[d.id]?.probe).length;
-  const coreState = routing || runsNow > 0 ? "working" : alerts.some((a) => a.tone === "bad") ? "alert" : "idle";
+  const working = routing || runsNow > 0;
+  const bad = alerts.some((a) => a.tone === "bad");
+  const coreState = working ? "working" : bad ? "alert" : "idle";
   const current = MODES.find((m) => m.id === mode)!;
+  const hermesNext = (status["channa"]?.probe?.hermes?.jobs ?? [])
+    .filter((j) => j.enabled && j.next_run_at && new Date(j.next_run_at).getTime() > Date.now())
+    .sort((a, b) => (a.next_run_at ?? "").localeCompare(b.next_run_at ?? ""))[0];
+  const sub = mode === "hermes" && hermesNext
+    ? `Next: ${hermesNext.name} at ${new Date(hermesNext.next_run_at!).toTimeString().slice(0, 5)} · each ring is a cron job`
+    : current.sub;
+
+  const shortsViews = useMemo(() => (yt.data?.channels[0]?.items ?? [])
+    .filter((i) => i.kind === "short").slice(0, 60).reverse().map((i) => i.views ?? 0), [yt.data]);
 
   const go = async () => {
     const prompt = text.trim();
@@ -258,35 +252,63 @@ export default function Home({ onNavigate }: { onNavigate: (tab: string) => void
     setText("");
   };
 
+  const core = mode === "claude" ? (
+    <CodeCore alert={bad} working={working} machines={devices.map((d) => ({
+      id: d.id, name: d.name, online: !!status[d.id]?.probe, selected: d.id === target,
+      sessions: open.filter((x) => x.kind === "claude" && x.deviceId === d.id && x.alive).length,
+    }))} />
+  ) : mode === "hermes" ? (
+    <OrbitCore jobs={status["channa"]?.probe?.hermes?.jobs ?? []} running={status["channa"]?.probe?.hermes?.running} alert={bad} />
+  ) : mode === "zara" ? (
+    <WaveCore views={shortsViews} postedToday={pipelines.data?.posting.youtube_today ?? null} alert={bad} working={working} />
+  ) : (
+    <SpiralCore state={coreState} />
+  );
+
+  const left = mode === "claude" ? <ClaudeMachines target={target} onPick={setTarget} />
+    : mode === "hermes" ? <HermesJobs />
+      : mode === "zara" ? <ZaraToday />
+        : <Vitals />;
+  const right = mode === "claude" ? <ClaudeSide onNavigate={onNavigate} />
+    : mode === "hermes" ? <HermesSide onNavigate={onNavigate}><Directives /></HermesSide>
+      : mode === "zara" ? <ZaraSide devices={devices} />
+        : (
+          <div className="hud-col">
+            <QuickActions devices={devices} />
+            <Directives />
+            <NextUp />
+          </div>
+        );
+
   return (
-    <div className="hud">
+    <div className="hud" data-mode={mode}>
       <header className="hud-top">
         <div className="hud-brand">
           <div className="hud-name">HARNESS<span>/v1</span></div>
           <div className="hud-tag">FOUR MACHINES, ONE CONSOLE</div>
         </div>
-        <div className="modes">
+        <div className="modes" role="tablist">
           {MODES.map((m) => (
-            <button key={m.id} className={`mode ${mode === m.id ? "mode-on" : ""}`} onClick={() => setMode(m.id)}>{m.label}</button>
+            <button key={m.id} role="tab" aria-selected={mode === m.id} className={`mode mode-${m.id} ${mode === m.id ? "mode-on" : ""}`} onClick={() => setMode(m.id)}>{m.label}</button>
           ))}
         </div>
         <Clock />
       </header>
 
       <div className="hud-grid">
-        <Vitals />
+        {left}
 
         <section className="hud-center">
           <div className="statusline">
-            <span className={`st ${coreState}`}>● CORE · {coreState.toUpperCase()}</span>
+            <span className={`st ${coreState}`}>● {mode === "auto" ? "CORE" : current.label} · {coreState.toUpperCase()}</span>
             <span>{online}/{devices.length} MACHINES</span>
             <span className={vaultOk === false ? "off" : ""}>{vaultOk === null ? "VAULT …" : vaultOk ? "VAULT CONNECTED" : "VAULT OFFLINE"}</span>
             <span className={layaOk === false ? "off" : ""}>{layaOk === null ? "LAYA …" : layaOk ? "LAYA READY" : "LAYA OFFLINE"}</span>
             <span>{open.length} TERMINALS</span>
           </div>
-          <Core state={coreState} />
+          {core}
           <div className="core-name">{current.label}</div>
-          <div className="core-sub">{current.sub}</div>
+          <div className="core-sub">{sub}</div>
           {mode === "claude" && (
             <div className="targets hud-targets">
               {devices.map((d) => (
@@ -296,7 +318,7 @@ export default function Home({ onNavigate }: { onNavigate: (tab: string) => void
           )}
           <form className="ask" onSubmit={(e) => { e.preventDefault(); go(); }}>
             <input value={text} onChange={(e) => setText(e.target.value)}
-              placeholder={mode === "auto" ? "Ask anything — Laya routes it" : mode === "claude" ? "What should Claude Code do? (empty = just open it)" : `Message ${current.label.toLowerCase()}…`} />
+              placeholder={mode === "auto" ? "Ask anything — Laya routes it" : mode === "claude" ? `What should Claude Code do on ${devices.find((d) => d.id === target)?.name ?? "it"}? (empty = just open it)` : `Message ${current.label.toLowerCase()}…`} />
             <button className="hud-btn" type="submit" disabled={routing || (mode === "auto" && !text.trim())}>{mode === "auto" ? "Route" : "Open"}</button>
           </form>
           {note && <div className="hud-note">{note}</div>}
@@ -308,11 +330,7 @@ export default function Home({ onNavigate }: { onNavigate: (tab: string) => void
           )}
         </section>
 
-        <div className="hud-col">
-          <QuickActions devices={devices} />
-          <Directives />
-          <NextUp />
-        </div>
+        {right}
       </div>
     </div>
   );

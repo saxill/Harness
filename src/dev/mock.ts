@@ -64,7 +64,7 @@ const handlers: Record<string, (a: Record<string, string>) => unknown> = {
     route: { choice: "claude", probabilities: { claude: 0.81, hermes: 0.12, zara: 0.07 } },
     ok: { noul: 0.97 },
   } }, 250),
-  vault_settings_get: () => ({ deviceId: "laptop", root: "~/Documents/saxil-obsidian/saxil" }),
+  vault_settings_get: () => ({ deviceId: "pi", root: "~/storage/vault" }),
   vault_settings_set: () => null,
   vault_op: ({ op, path, content }) => {
     if (op === "list") return { exists: true, notes: Object.keys(vaultNotes).map((p) => ({ path: p, mtime: Date.now() / 1000 - 3600 })) };

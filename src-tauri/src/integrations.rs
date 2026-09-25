@@ -49,8 +49,9 @@ pub struct VaultSettings {
 
 impl Default for VaultSettings {
     fn default() -> Self {
-        // Until Syncthing mirrors it to the Pi, the vault lives on the laptop.
-        Self { device_id: "laptop".into(), root: "~/Documents/saxil-obsidian/saxil".into() }
+        // The Pi's copy: always on, and Syncthing keeps it in step with the
+        // laptop's (~/Documents/saxil-obsidian/saxil), where Obsidian runs.
+        Self { device_id: "pi".into(), root: "~/storage/vault".into() }
     }
 }
 
