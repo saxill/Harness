@@ -6,22 +6,22 @@ import Home from "./Home";
 import Overview from "./Overview";
 import RunView from "./RunView";
 import SettingsView from "./SettingsView";
-import { ConfirmHost, Dot, OsGlyph, RunPanel, useRuns, useStatus } from "./components";
+import { ConfirmHost, Dot, RunPanel, useRuns, useStatus } from "./components";
 import { SessionKind } from "./hub";
 import { TerminalDock, useSessions } from "./terminals";
 
 type Tab = "home" | "claude" | "hermes" | "zara" | "machines" | "run" | "agent" | "history" | "settings";
 
-const NAV: { id: Tab; label: string; key: string; group?: string }[] = [
-  { id: "home", label: "Home", key: "1" },
-  { id: "claude", label: "Claude Code", key: "2", group: "AGENTS" },
-  { id: "hermes", label: "Hermes", key: "3" },
-  { id: "zara", label: "Zara", key: "4" },
-  { id: "agent", label: "Harness agent", key: "5" },
-  { id: "machines", label: "Machines", key: "6", group: "SYSTEM" },
-  { id: "run", label: "Run commands", key: "7" },
-  { id: "history", label: "History", key: "8" },
-  { id: "settings", label: "Settings", key: "9" },
+const NAV: { id: Tab; label: string; key: string }[] = [
+  { id: "home", label: "HOME", key: "1" },
+  { id: "claude", label: "CLAUDE CODE", key: "2" },
+  { id: "hermes", label: "HERMES", key: "3" },
+  { id: "zara", label: "ZARA", key: "4" },
+  { id: "agent", label: "AGENT", key: "5" },
+  { id: "machines", label: "MACHINES", key: "6" },
+  { id: "run", label: "RUN", key: "7" },
+  { id: "history", label: "HISTORY", key: "8" },
+  { id: "settings", label: "SETTINGS", key: "9" },
 ];
 
 function ActivityDock() {
@@ -59,35 +59,28 @@ export default function App() {
           if (t && !(e.target as HTMLElement).closest(".xterm")) { e.preventDefault(); setTab(t.id); }
         }
       }}>
-      <aside className="sidebar">
-        <div className="brand">HARNESS<span>.</span></div>
-        <nav>
+      <header className="topnav">
+        <nav className="topnav-links">
           {NAV.map((n) => (
-            <div key={n.id}>
-              {n.group && <div className="side-label">{n.group}</div>}
-              <button className={`nav ${tab === n.id ? "nav-on" : ""}`} onClick={() => setTab(n.id)}>
-                {n.label}
-                {(n.id === "claude" || n.id === "hermes" || n.id === "zara") && count(n.id) > 0 && <span className="pill">{count(n.id)}</span>}
-                <span className="kbd">⌘{n.key}</span>
-              </button>
-            </div>
+            <button key={n.id} className={`tn ${tab === n.id ? "tn-on" : ""}`} onClick={() => setTab(n.id)} title={`⌘${n.key}`}>
+              {n.label}
+              {(n.id === "claude" || n.id === "hermes" || n.id === "zara") && count(n.id) > 0 && <span className="tn-count">{count(n.id)}</span>}
+            </button>
           ))}
         </nav>
-        <div className="side-devices">
-          <div className="side-label">MACHINES</div>
+        <div className="topnav-machines">
           {devices.map((d) => {
             const s = status[d.id];
             const worst = Math.max(0, ...(s?.probe?.disks ?? []).map((k) => k.used_percent));
             const state = !s || (s.loading && !s.probe) ? "idle" : s.error && !s.probe ? "bad" : worst >= 95 ? "bad" : worst >= 90 ? "warn" : "ok";
             return (
-              <button key={d.id} className="side-device" onClick={() => openRun(d.id)} title={`${d.host} — run commands`}>
-                <Dot state={state} /><OsGlyph kind={d.kind} /><span className="clip">{d.name}</span>
-                {d.isLocal && <span className="muted small">here</span>}
+              <button key={d.id} className="tm" onClick={() => openRun(d.id)} title={`${d.name} · ${d.host} — run commands`}>
+                <Dot state={state} /><span>{d.name}</span>
               </button>
             );
           })}
         </div>
-      </aside>
+      </header>
 
       <div className="main-wrap">
         <main className={`main ${tab === "home" ? "main-hud" : ""}`}>
