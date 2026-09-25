@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { AgentSettings, api, Device, statusStore } from "./api";
 import { useStatus } from "./components";
+import { setYtChannels, VaultSettings, vault, youtube, ytChannels } from "./hub";
 
 const PRESETS: { name: string; baseUrl: string; model: string; note: string }[] = [
   { name: "Anthropic", baseUrl: "https://api.anthropic.com/v1", model: "claude-sonnet-5", note: "Most reliable at deciding when to run a command." },
@@ -16,6 +17,9 @@ export default function SettingsView() {
   const [key, setKey] = useState("");
   const [msg, setMsg] = useState("");
   const [draft, setDraft] = useState<Device[]>([]);
+  const [channels, setChannels] = useState(ytChannels().join(", "));
+  const [vs, setVs] = useState<VaultSettings>({ deviceId: "laptop", root: "" });
+  useEffect(() => { vault.settings().then(setVs); }, []);
 
   useEffect(() => {
     api.agentSettings().then(setAgent);
@@ -69,6 +73,37 @@ export default function SettingsView() {
           {hasKey && <button className="btn" onClick={async () => { await api.setKey(""); setHasKey(false); flash("Key removed."); }}>Remove key</button>}
         </div>
         <p className="small muted">{PRESETS.find((p) => p.baseUrl === agent.baseUrl)?.note}</p>
+      </section>
+
+      <section className="card panel">
+        <h2>YouTube channels</h2>
+        <p className="muted small">Public stats read with yt-dlp on the Pi — no login or API key. Separate handles with commas.</p>
+        <label className="field"><span>Handles</span>
+          <input value={channels} spellCheck={false} onChange={(e) => setChannels(e.target.value)} placeholder="@bytsyz1, @another" /></label>
+        <div className="btn-row">
+          <button className="btn btn-primary" onClick={() => {
+            setYtChannels(channels.split(/[\s,]+/).filter(Boolean).map((c) => (c.startsWith("@") ? c : "@" + c)));
+            youtube.refresh(); flash("Channels saved.");
+          }}>Save channels</button>
+        </div>
+      </section>
+
+      <section className="card panel">
+        <h2>Obsidian vault</h2>
+        <p className="muted small">Where Directives, Harness logs and agent reports are read and written. Once Syncthing mirrors the vault to the Pi, point this at the Pi so it works while the laptop sleeps.</p>
+        <label className="field"><span>Machine</span>
+          <select value={vs.deviceId} onChange={(e) => setVs({ ...vs, deviceId: e.target.value })}>
+            {devices.filter((d) => d.kind !== "windows").map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </select></label>
+        <label className="field"><span>Folder</span>
+          <input value={vs.root} spellCheck={false} onChange={(e) => setVs({ ...vs, root: e.target.value })} /></label>
+        <div className="btn-row">
+          <button className="btn btn-primary" onClick={async () => {
+            await vault.setSettings(vs);
+            const r = await vault.list().catch(() => null);
+            flash(r?.exists ? `Vault found: ${r.notes.length} notes.` : "Saved, but no vault folder found there.");
+          }}>Save & test</button>
+        </div>
       </section>
 
       <section className="card panel">

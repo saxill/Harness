@@ -1,22 +1,29 @@
 import { useState } from "react";
+import { ClaudeView, HermesView, ZaraView } from "./AgentPages";
 import AgentView from "./AgentView";
 import HistoryView from "./HistoryView";
+import Home from "./Home";
 import Overview from "./Overview";
 import RunView from "./RunView";
 import SettingsView from "./SettingsView";
 import { ConfirmHost, Dot, OsGlyph, RunPanel, useRuns, useStatus } from "./components";
+import { SessionKind } from "./hub";
+import { TerminalDock, useSessions } from "./terminals";
 
-type Tab = "overview" | "terminal" | "agent" | "history" | "settings";
+type Tab = "home" | "claude" | "hermes" | "zara" | "machines" | "run" | "agent" | "history" | "settings";
 
-const TABS: { id: Tab; label: string; key: string }[] = [
-  { id: "overview", label: "Overview", key: "1" },
-  { id: "terminal", label: "Terminal", key: "2" },
-  { id: "agent", label: "Agent", key: "3" },
-  { id: "history", label: "History", key: "4" },
-  { id: "settings", label: "Settings", key: "5" },
+const NAV: { id: Tab; label: string; key: string; group?: string }[] = [
+  { id: "home", label: "Home", key: "1" },
+  { id: "claude", label: "Claude Code", key: "2", group: "AGENTS" },
+  { id: "hermes", label: "Hermes", key: "3" },
+  { id: "zara", label: "Zara", key: "4" },
+  { id: "agent", label: "Harness agent", key: "5" },
+  { id: "machines", label: "Machines", key: "6", group: "SYSTEM" },
+  { id: "run", label: "Run commands", key: "7" },
+  { id: "history", label: "History", key: "8" },
+  { id: "settings", label: "Settings", key: "9" },
 ];
 
-/** Output of dashboard buttons, pinned bottom-right on every tab. */
 function ActivityDock() {
   const all = useRuns();
   const { devices } = useStatus();
@@ -36,43 +43,45 @@ function ActivityDock() {
 }
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>("overview");
-  const [terminalFor, setTerminalFor] = useState<string | undefined>();
+  const [tab, setTab] = useState<Tab>("home");
+  const [runFor, setRunFor] = useState<string | undefined>();
   const { devices, status } = useStatus();
-  const running = useRuns().filter((r) => r.running).length;
-
-  const openTerminal = (id: string) => { setTerminalFor(id); setTab("terminal"); };
+  const { sessions } = useSessions();
+  const openRun = (id: string) => { setRunFor(id); setTab("run"); };
+  const count = (k: SessionKind) => sessions.filter((s) => s.kind === k && s.alive).length;
+  const deckKind: SessionKind | undefined = tab === "claude" || tab === "hermes" || tab === "zara" ? tab : undefined;
 
   return (
     <div className="shell"
       onKeyDown={(e) => {
-        if ((e.metaKey || e.ctrlKey) && !e.shiftKey) {
-          const t = TABS.find((t) => t.key === e.key);
-          if (t) { e.preventDefault(); setTab(t.id); }
+        if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
+          const t = NAV.find((n) => n.key === e.key);
+          if (t && !(e.target as HTMLElement).closest(".xterm")) { e.preventDefault(); setTab(t.id); }
         }
       }}>
       <aside className="sidebar">
-        <div className="brand">Harness<span>.</span></div>
+        <div className="brand">HARNESS<span>.</span></div>
         <nav>
-          {TABS.map((t) => (
-            <button key={t.id} className={`nav ${tab === t.id ? "nav-on" : ""}`} onClick={() => setTab(t.id)}>
-              {t.label}
-              {t.id === "terminal" && running > 0 && <span className="pill">{running}</span>}
-              <span className="kbd">⌘{t.key}</span>
-            </button>
+          {NAV.map((n) => (
+            <div key={n.id}>
+              {n.group && <div className="side-label">{n.group}</div>}
+              <button className={`nav ${tab === n.id ? "nav-on" : ""}`} onClick={() => setTab(n.id)}>
+                {n.label}
+                {(n.id === "claude" || n.id === "hermes" || n.id === "zara") && count(n.id) > 0 && <span className="pill">{count(n.id)}</span>}
+                <span className="kbd">⌘{n.key}</span>
+              </button>
+            </div>
           ))}
         </nav>
         <div className="side-devices">
-          <div className="side-label">Machines</div>
+          <div className="side-label">MACHINES</div>
           {devices.map((d) => {
             const s = status[d.id];
             const worst = Math.max(0, ...(s?.probe?.disks ?? []).map((k) => k.used_percent));
             const state = !s || (s.loading && !s.probe) ? "idle" : s.error && !s.probe ? "bad" : worst >= 95 ? "bad" : worst >= 90 ? "warn" : "ok";
             return (
-              <button key={d.id} className="side-device" onClick={() => openTerminal(d.id)} title={`${d.host} — open terminal`}>
-                <Dot state={state} />
-                <OsGlyph kind={d.kind} />
-                <span className="clip">{d.name}</span>
+              <button key={d.id} className="side-device" onClick={() => openRun(d.id)} title={`${d.host} — run commands`}>
+                <Dot state={state} /><OsGlyph kind={d.kind} /><span className="clip">{d.name}</span>
                 {d.isLocal && <span className="muted small">here</span>}
               </button>
             );
@@ -80,13 +89,20 @@ export default function App() {
         </div>
       </aside>
 
-      <main className="main">
-        {tab === "overview" && <Overview onTerminal={openTerminal} />}
-        {tab === "terminal" && <RunView preselect={terminalFor} />}
-        {tab === "agent" && <AgentView onSettings={() => setTab("settings")} />}
-        {tab === "history" && <HistoryView />}
-        {tab === "settings" && <SettingsView />}
-      </main>
+      <div className="main-wrap">
+        <main className={`main ${tab === "home" ? "main-hud" : ""}`}>
+          {tab === "home" && <Home onNavigate={(t) => setTab(t as Tab)} />}
+          {tab === "claude" && <ClaudeView />}
+          {tab === "hermes" && <HermesView />}
+          {tab === "zara" && <ZaraView />}
+          {tab === "agent" && <AgentView onSettings={() => setTab("settings")} />}
+          {tab === "machines" && <Overview onTerminal={openRun} />}
+          {tab === "run" && <RunView preselect={runFor} />}
+          {tab === "history" && <HistoryView />}
+          {tab === "settings" && <SettingsView />}
+        </main>
+        <TerminalDock hiddenFor={deckKind} />
+      </div>
 
       <ActivityDock />
       <ConfirmHost />

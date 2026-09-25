@@ -1,7 +1,9 @@
 mod agent;
 mod devices;
 mod exec;
+mod integrations;
 mod probe;
+mod pty;
 
 use std::collections::HashMap;
 use tokio::sync::{oneshot, Mutex};
@@ -16,6 +18,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(AppState { runs: Mutex::new(HashMap::new()) })
+        .manage(pty::Ptys::default())
         .invoke_handler(tauri::generate_handler![
             devices::devices_list,
             devices::devices_save,
@@ -29,6 +32,15 @@ pub fn run() {
             agent::agent_key_set,
             agent::agent_key_status,
             agent::agent_complete,
+            pty::pty_open,
+            pty::pty_write,
+            pty::pty_resize,
+            pty::pty_close,
+            integrations::youtube_stats,
+            integrations::laya_judge,
+            integrations::vault_settings_get,
+            integrations::vault_settings_set,
+            integrations::vault_op,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -21,7 +21,11 @@ const devices = [
 ];
 
 let agentStep = 0;
-const fx = fixtures as unknown as { probes: Record<string, unknown>; pipelines: unknown };
+const fx = fixtures as unknown as { probes: Record<string, unknown>; pipelines: unknown; youtube: unknown };
+const vaultNotes: Record<string, string> = {
+  "Directives.md": "# Directives\n\n- [ ] Rotate the leaked secrets\n- [ ] Refresh Reckon on the iPhone before 27 Sep\n- [ ] Pick a model for Zara\n- [x] Log Instagram back in on the Pi\n",
+  "Hermes/2026-09-25 daily check.md": "# Daily check\n\nAll 12 jobs ok.",
+};
 
 const handlers: Record<string, (a: Record<string, string>) => unknown> = {
   devices_list: () => devices,
@@ -52,6 +56,29 @@ const handlers: Record<string, (a: Record<string, string>) => unknown> = {
     }
     return wait({ role: "assistant", content: "C: is **97% full** (2.1 GB free). The biggest folder is `C:\\Users\\Admin\\AppData\\Local` — mostly Hermes' uv cache." }, 900);
   },
+  youtube_stats: () => wait(fx.youtube, 700),
+  laya_judge: ({ state }) => wait({ answers: {
+    risk: { choice: /rm |kill|delete/.test(String(state)) ? "destructive" : "read_only", probabilities: { read_only: 0.86, modifies: 0.1, destructive: 0.04 } },
+    route: { choice: "claude", probabilities: { claude: 0.81, hermes: 0.12, zara: 0.07 } },
+    ok: { noul: 0.97 },
+  } }, 250),
+  vault_settings_get: () => ({ deviceId: "laptop", root: "~/Documents/saxil-obsidian/saxil" }),
+  vault_settings_set: () => null,
+  vault_op: ({ op, path, content }) => {
+    if (op === "list") return { exists: true, notes: Object.keys(vaultNotes).map((p) => ({ path: p, mtime: Date.now() / 1000 - 3600 })) };
+    if (op === "read") return { exists: path in vaultNotes, content: vaultNotes[path] ?? "" };
+    vaultNotes[path] = (op === "append" ? vaultNotes[path] ?? "" : "") + content;
+    return { ok: true, path };
+  },
+  pty_open: ({ sessionId, command }) => {
+    const say = (t: string) => emit("pty://data", { sessionId, data: btoa(unescape(encodeURIComponent(t))) });
+    setTimeout(() => say(`\x1b[2m(browser preview — no real machine)\x1b[0m\r\n$ ${command ?? "bash -l"}\r\n`), 200);
+    if (String(command).startsWith("claude")) setTimeout(() => say("\x1b[38;5;215m✻\x1b[0m Welcome to \x1b[1mClaude Code\x1b[0m\r\n\r\n  cwd: ~\r\n\r\n> "), 700);
+    return null;
+  },
+  pty_write: ({ sessionId, data }) => { emit("pty://data", { sessionId, data: btoa(unescape(encodeURIComponent(String(data).replace(/\r/g, "\r\n")))) }); return null; },
+  pty_resize: () => null,
+  pty_close: () => null,
   "plugin:event|listen": ({ event, handler }) => {
     const id = Number(handler);
     listeners.set(event, [...(listeners.get(event) ?? []), id]);

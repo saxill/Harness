@@ -95,6 +95,14 @@ fn append_history(app: &AppHandle, entry: Value) {
     }
 }
 
+/// Interactive sessions go in History too, marked as such.
+pub fn log_session(app: &AppHandle, dev: &Device, command: &str, source: &str) {
+    append_history(app, json!({
+        "ts": now_secs(), "runId": format!("pty-{}", now_secs()), "deviceId": dev.id, "deviceName": dev.name,
+        "command": command, "source": source, "code": null, "cancelled": false, "durationMs": 0,
+    }));
+}
+
 #[tauri::command]
 pub async fn run_start(
     app: AppHandle,

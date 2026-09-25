@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Action } from "./actions";
 import { Device, Run, runs, statusStore } from "./api";
+import { vault } from "./hub";
 
 // ---------- hooks ----------
 
@@ -164,5 +165,12 @@ export async function runAction(action: Action, devices: Device[]): Promise<Run 
   const dev = devices.find((d) => d.id === action.deviceId);
   if (!dev) return null;
   if (!(await confirmAction(action, dev.name))) return null;
-  return runs.start(dev.id, action.command, "action", action.label);
+  const run = await runs.start(dev.id, action.command, "action", action.label);
+  // Keep a plain-text trail in Obsidian: Harness/Log/<day>.md
+  const t = new Date();
+  const day = t.toISOString().slice(0, 10);
+  const result = run.error ? "could not start" : run.cancelled ? "cancelled" : `exit ${run.code}`;
+  vault.append(`Harness/Log/${day}.md`,
+    `- ${t.toTimeString().slice(0, 5)} · ${action.label} on ${dev.name} → ${result}\n`).catch(() => {});
+  return run;
 }

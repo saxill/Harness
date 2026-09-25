@@ -3,9 +3,9 @@ import { hermesActions, piActions } from "./actions";
 import { ago, Device, duration, Pipelines, Probe, statusStore, Status, when } from "./api";
 import { Badge, Dot, Meter, OsGlyph, runAction, useStatus } from "./components";
 
-type Alert = { tone: "bad" | "warn"; text: string };
+export type Alert = { tone: "bad" | "warn"; text: string };
 
-function alertsFor(devices: Device[], status: Record<string, Status>, p?: Pipelines): Alert[] {
+export function alertsFor(devices: Device[], status: Record<string, Status>, p?: Pipelines): Alert[] {
   const out: Alert[] = [];
   for (const d of devices) {
     const s = status[d.id];
@@ -243,7 +243,7 @@ function ServicesPanel({ p, devices }: { p: Pipelines; devices: Device[] }) {
   );
 }
 
-function HermesPanel({ probe, devices }: { probe?: Probe; devices: Device[] }) {
+export function HermesPanel({ probe, devices }: { probe?: Probe; devices: Device[] }) {
   const jobs = (probe?.hermes?.jobs ?? []).filter((j) => j.enabled).sort((a, b) => (a.next_run_at ?? "").localeCompare(b.next_run_at ?? ""));
   if (!probe?.hermes) return null;
   return (
@@ -282,7 +282,7 @@ export default function Overview({ onTerminal }: { onTerminal: (id: string) => v
   return (
     <div className="view">
       <div className="view-head">
-        <h1>Overview</h1>
+        <h1>Machines</h1>
         <span className="muted small">{pipelines.loading ? "refreshing pipelines…" : pipelines.at ? `pipelines ${ago(pipelines.at)}` : ""}</span>
         <span className="spacer" />
         <button className="btn" onClick={() => statusStore.refreshAll()}>Refresh all</button>

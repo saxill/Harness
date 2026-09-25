@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { api, Device, runOutput, runs } from "./api";
+import { laya, LayaChoice, vault } from "./hub";
 import { Badge, RunPanel, useRuns, useStatus } from "./components";
 
 type Msg = Record<string, unknown>;
@@ -18,6 +19,7 @@ type Item =
       state: "pending" | "running" | "done" | "denied";
       runId?: string;
       summary?: string;
+      risk?: LayaChoice | "unavailable";
     };
 
 const ROLE_NOTES: Record<string, string> = {
@@ -117,6 +119,7 @@ export default function AgentView({ onSettings }: { onSettings: () => void }) {
   const [model, setModel] = useState("");
   const [hasKey, setHasKey] = useState<boolean | null>(null);
   const history = useRef<Msg[]>([]);
+  const chatStarted = useRef<Date | null>(null);
   const approvals = useRef(new Map<string, (ok: boolean) => void>());
   const stop = useRef(false);
   const end = useRef<HTMLDivElement>(null);
@@ -158,6 +161,9 @@ export default function AgentView({ onSettings }: { onSettings: () => void }) {
       return `error: bad tool call ${name} ${call.function.arguments}`;
     }
     push({ kind: "tool", id: call.id, name, device: args.device, command: args.command, reason: args.reason, state: "pending" });
+    // Laya's quick second opinion on what the command would do, shown on the card.
+    laya.commandRisk(args.command, devices.find((d) => d.id === args.device)?.name ?? args.device)
+      .then((risk) => patchTool(call.id, { risk }), () => patchTool(call.id, { risk: "unavailable" }));
     const ok = await new Promise<boolean>((resolve) => approvals.current.set(call.id, resolve));
     if (!ok) {
       patchTool(call.id, { state: "denied" });
@@ -205,7 +211,23 @@ export default function AgentView({ onSettings }: { onSettings: () => void }) {
       approvals.current.forEach((r) => r(false));
       approvals.current.clear();
       setBusy(false);
+      saveTranscript();
     }
+  }
+
+  /** Harness/Agent/<start>.md in Obsidian, rewritten after every turn. */
+  function saveTranscript() {
+    if (!chatStarted.current) chatStarted.current = new Date();
+    const t = chatStarted.current;
+    const stamp = `${t.toISOString().slice(0, 10)} ${t.toTimeString().slice(0, 5).replace(":", "")}`;
+    const lines = history.current.filter((m) => m.role !== "system").map((m) => {
+      if (m.role === "user") return `**You:** ${m.content}`;
+      if (m.role === "tool") return "```\n" + String(m.content).slice(0, 1500) + "\n```";
+      const calls = (m.tool_calls as { function: { arguments: string } }[] | undefined) ?? [];
+      const text = typeof m.content === "string" ? m.content : "";
+      return [text && `**Agent:** ${text}`, ...calls.map((c) => `> ran: \`${(() => { try { return JSON.parse(c.function.arguments).command ?? c.function.arguments; } catch { return c.function.arguments; } })()}\``)].filter(Boolean).join("\n");
+    });
+    vault.write(`Harness/Agent/${stamp}.md`, `# Harness agent · ${stamp}\n\n${lines.join("\n\n")}\n`).catch(() => {});
   }
 
   const reset = () => {
@@ -213,6 +235,7 @@ export default function AgentView({ onSettings }: { onSettings: () => void }) {
     approvals.current.forEach((r) => r(false));
     approvals.current.clear();
     history.current = [];
+    chatStarted.current = null;
     setItems([]);
   };
 
@@ -254,6 +277,18 @@ export default function AgentView({ onSettings }: { onSettings: () => void }) {
                 {it.state === "done" && it.summary && <span className="muted small">{it.summary}</span>}
               </div>
               {it.reason && <div className="small muted">{it.reason}</div>}
+              {it.name === "run_command" && it.state === "pending" && (
+                <div className="laya">
+                  <span className="laya-tag">LAYA</span>
+                  {it.risk === undefined && <span className="muted small">judging…</span>}
+                  {it.risk === "unavailable" && <span className="muted small">offline — judge it yourself</span>}
+                  {it.risk && it.risk !== "unavailable" && (
+                    <Badge tone={it.risk.choice === "read_only" ? "ok" : it.risk.choice === "modifies" ? "warn" : "bad"}>
+                      {it.risk.choice.replace("_", "-")} · {Math.round((it.risk.probabilities[it.risk.choice] ?? 0) * 100)}%
+                    </Badge>
+                  )}
+                </div>
+              )}
               {it.command && <pre className="code">{it.command}</pre>}
               {it.state === "pending" && (
                 <div className="btn-row">
