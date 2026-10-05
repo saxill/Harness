@@ -4,6 +4,8 @@ One window over the whole tailnet. A Tauri desktop app that watches four
 machines, opens terminals on any of them, talks to the agents living on them,
 and keeps the content pipelines under a thumb.
 
+![Harness — Home in Hermes mode: cron schedule on the left, the mode's particle core in the middle, channa's vitals and alerts on the right](docs/screenshot.png)
+
 ## What it does
 
 - **Live fleet status.** MacBook (macOS), channa (Windows), the Pi, and the
